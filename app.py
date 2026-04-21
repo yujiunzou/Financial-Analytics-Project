@@ -182,20 +182,41 @@ def compute_beneish(r, l):
 
 @st.cache_data(ttl=3600)
 def fetch_company(ticker_sym: str):
+    import time
+    for attempt in range(3):
+        try:
+            t    = yf.Ticker(ticker_sym)
+            info = t.info or {}
+            name = info.get('longName', ticker_sym.upper())
+
+            inc = t.financials
+            bal = t.balance_sheet
+            cf  = t.cashflow
+
+            if inc is None or inc.empty:
+                # Possibly rate-limited — retry after short wait
+                if attempt < 2:
+                    time.sleep(3 + attempt * 2)
+                    continue
+                return None, None, None, None, None, (
+                    "Yahoo Finance returned no data. This is usually a temporary rate limit. "
+                    "Please wait 30–60 seconds and try again."
+                )
+            if inc.shape[1] < 2:
+                return None, None, None, None, None, "Need at least 2 years of data to compute growth ratios."
+            break  # success — exit retry loop
+        except Exception as e:
+            err_msg = str(e)
+            if "rate limit" in err_msg.lower() or "too many" in err_msg.lower() or attempt < 2:
+                time.sleep(3 + attempt * 3)
+                continue
+            return None, None, None, None, None, f"Error fetching data: {err_msg}"
+    else:
+        return None, None, None, None, None, (
+            "Yahoo Finance is rate-limiting requests right now. "
+            "Please wait 1–2 minutes and click Run Analysis again."
+        )
     try:
-        t    = yf.Ticker(ticker_sym)
-        info = t.info or {}
-        name = info.get('longName', ticker_sym.upper())
-
-        inc = t.financials
-        bal = t.balance_sheet
-        cf  = t.cashflow
-
-        if inc is None or inc.empty:
-            return None, None, None, None, None, "Cannot fetch financial data. Please verify the ticker symbol."
-        if inc.shape[1] < 2:
-            return None, None, None, None, None, "Need at least 2 years of data to compute growth ratios."
-
         r = dict(
             revt =safe_get(inc,'Total Revenue'),
             cogs =safe_get(inc,'Cost Of Revenue'),
@@ -335,7 +356,7 @@ def count_flags(feats):
 # SIDEBAR
 # ═══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
-    st.markdown("## 🔍 FraudSight")
+    st.markdown("<h1 style='font-size:1.8rem;font-weight:700;margin-bottom:2px;color:#fff'>🔍 FraudSight</h1>", unsafe_allow_html=True)
     st.markdown("<p style='color:#9ca3af;font-size:0.82rem;margin-top:-8px'>Financial Fraud Detection Platform</p>", unsafe_allow_html=True)
     st.markdown("---")
     st.markdown("**Company Ticker**")
@@ -352,13 +373,17 @@ with st.sidebar:
 
 # ── Run Analysis ──────────────────────────────────────────────────────────────
 if run_btn and ticker_input:
-    with st.spinner(f"Fetching data for {ticker_input}…"):
+    fetch_company.clear()
+    with st.spinner(f"Fetching data for {ticker_input}… (may take 10-20 seconds)"):
         feats, m_score, company_name, hist_df, extra, *err_parts = fetch_company(ticker_input)
         fetch_err = err_parts[0] if err_parts else None
 
     if feats is None:
-        st.session_state['error']  = fetch_err
-        st.session_state['result'] = None
+        msg = fetch_err or "Unknown error."
+        if any(x in msg.lower() for x in ["rate limit","too many","rate-limit"]):
+            msg = msg + " Yahoo Finance rate limit hit. Please wait 60 seconds and try again."
+        st.session_state["error"]  = msg
+        st.session_state["result"] = None
     else:
         mdl = load_model()
         feat_df = pd.DataFrame([feats])
@@ -383,8 +408,18 @@ mdl = load_model()
 # PAGE 1 – HOME
 # ═══════════════════════════════════════════════════════════════════════════════
 if page == "🏠 Home":
-    st.markdown('<p class="page-title">Welcome to FraudSight</p>', unsafe_allow_html=True)
-    st.markdown('<p class="page-subtitle">AI-powered financial fraud detection for public companies</p>', unsafe_allow_html=True)
+    st.markdown("""
+<div style='text-align:center;padding:2.5rem 0 1.5rem 0'>
+  <div style='font-family:"DM Serif Display",serif;font-size:3.2rem;font-weight:700;
+              color:#0f1117;line-height:1.1;margin-bottom:0.6rem'>
+    🔍 FraudSight
+  </div>
+  <div style='font-size:1.2rem;color:#6b7280;margin-bottom:0.3rem'>
+    AI-powered financial fraud detection for public companies
+  </div>
+  <div style='font-size:0.88rem;color:#9ca3af'>BA870AC820 · BU Questrom School of Business</div>
+</div>
+""", unsafe_allow_html=True)
 
     c1, c2, c3 = st.columns(3)
     for col, icon, title, body in [
