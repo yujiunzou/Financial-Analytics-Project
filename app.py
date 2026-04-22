@@ -390,7 +390,7 @@ with st.sidebar:
                     ["🏠 Home","📊 Company Analysis","📈 Financial Trends","⚖️ Compare Companies"],
                     label_visibility="collapsed")
     st.markdown("---")
-    st.markdown("<p style='color:#4a5568;font-size:0.78rem'>BA870AC820 · BU Questrom<br>Financial & Accounting Analytics</p>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#4a5568;font-size:0.78rem'>BA870AC820 · BU Questrom<br>Financial Analytics</p>", unsafe_allow_html=True)
 
 # ── Run Analysis ──────────────────────────────────────────────────────────────
 if run_btn and ticker_input:
