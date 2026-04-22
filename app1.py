@@ -164,7 +164,6 @@ def safe_get(df, key, col=0):
         return 0.0
 
 def compute_beneish(r, l):
-    """Original Beneish M-Score — same as working Colab version."""
     try:
         DSRI = (r['rect']/r['revt']) / (l['rect']/l['revt'])
         gm   = (r['revt']-r['cogs'])/r['revt']
@@ -177,174 +176,48 @@ def compute_beneish(r, l):
         LVGI = (r['lt']/r['at']) / (l['lt']/l['at'])
         TATA = (r['ni']-r['oancf'])/r['at']
         return round(-4.84 + 0.920*DSRI + 0.528*GMI + 0.404*AQI + 0.892*SGI
-                     + 0.115*DEPI - 0.172*SGAI + 4.679*TATA - 0.327*LVGI, 4), {}
-    except Exception as e:
-        return None, {"error": str(e)}
+                     + 0.115*DEPI - 0.172*SGAI + 4.679*TATA - 0.327*LVGI, 4)
+    except Exception:
+        return None
 
 @st.cache_data(ttl=3600)
 def fetch_company(ticker_sym: str):
-    """Fetch via yfinance with proper error handling."""
-    import yfinance as yf, time
+    import time
+    from curl_cffi import requests as cffi_requests
+    session = cffi_requests.Session(impersonate="chrome")
 
-    for attempt in range(3):
+    for attempt in range(4):
         try:
-            t    = yf.Ticker(ticker_sym)
-            info = t.fast_info   # fast_info is lighter and less rate-limited
-            name = getattr(info, 'quote_type', None) and ticker_sym.upper()
-
-            # Try to get company name from info dict
-            try:
-                full_info = t.info
-                name = full_info.get('longName', ticker_sym.upper())
-                sector   = full_info.get('sector', 'Other')
-                country  = full_info.get('country', 'N/A')
-                employees= full_info.get('fullTimeEmployees', 0)
-            except Exception:
-                name = ticker_sym.upper()
-                sector, country, employees = 'Other', 'N/A', 0
+            t    = yf.Ticker(ticker_sym, session=session)
+            info = t.info or {}
+            name = info.get('longName', ticker_sym.upper())
 
             inc = t.financials
             bal = t.balance_sheet
             cf  = t.cashflow
 
             if inc is None or inc.empty:
-                if attempt < 2:
-                    time.sleep(8)
+                if attempt < 3:
+                    time.sleep(5 + attempt * 5)
                     continue
-                return None,None,None,None,None,"No financial data returned. Check the ticker symbol."
+                return None, None, None, None, None, (
+                    "Yahoo Finance returned no data after multiple attempts. "
+                    "Please try a different ticker or wait a few minutes."
+                )
             if inc.shape[1] < 2:
-                return None,None,None,None,None,"Need at least 2 years of data."
-            break
+                return None, None, None, None, None, "Need at least 2 years of data to compute growth ratios."
+            break  # success
         except Exception as e:
-            if attempt < 2:
-                time.sleep(8)
+            err_msg = str(e)
+            if attempt < 3:
+                time.sleep(5 + attempt * 5)
                 continue
-            return None,None,None,None,None, f"Fetch error: {e}"
+            return None, None, None, None, None, f"Data fetch error: {err_msg}"
     else:
-        return None,None,None,None,None,"Yahoo Finance unavailable. Please try again in a few minutes."
-
-    try:
-        def sg(df, keys, col=0):
-            """Try multiple key names — yfinance field names vary by version."""
-            if isinstance(keys, str):
-                keys = [keys]
-            for key in keys:
-                try:
-                    v = df.loc[key].iloc[col]
-                    f = float(v)
-                    if f != 0.0 and str(v) != 'nan':
-                        return f
-                except Exception:
-                    continue
-            # last attempt: return 0
-            for key in keys:
-                try:
-                    v = df.loc[key].iloc[col]
-                    return float(v) if v is not None and str(v) != 'nan' else 0.0
-                except Exception:
-                    continue
-            return 0.0
-
-        r = dict(
-            revt =sg(inc,['Total Revenue','Revenue']),
-            cogs =sg(inc,['Cost Of Revenue','Cost Of Goods Sold','Reconciled Cost Of Revenue']),
-            ni   =sg(inc,['Net Income','Net Income Common Stockholders']),
-            xsga =sg(inc,['Selling General Administrative','Selling General And Administration','General And Administrative Expense']),
-            at   =sg(bal,['Total Assets']),
-            act  =sg(bal,['Current Assets','Total Current Assets']),
-            lct  =sg(bal,['Current Liabilities','Total Current Liabilities']),
-            lt   =sg(bal,['Total Liabilities Net Minority Interest','Total Liabilities']),
-            rect =sg(bal,['Receivables','Net Receivables','Accounts Receivable']),
-            ppent=sg(bal,['Net PPE','Net Property Plant And Equipment','Gross PPE']),
-            dpc  =sg(cf, ['Depreciation And Amortization','Depreciation Amortization Depletion','Depreciation']),
-            oancf=sg(cf, ['Operating Cash Flow','Cash Flow From Continuing Operating Activities']),
+        return None, None, None, None, None, (
+            "Unable to retrieve data from Yahoo Finance. "
+            "This may be a temporary issue — please try again in a few minutes."
         )
-        l = dict(
-            revt =sg(inc,['Total Revenue','Revenue'],1),
-            cogs =sg(inc,['Cost Of Revenue','Cost Of Goods Sold','Reconciled Cost Of Revenue'],1),
-            ni   =sg(inc,['Net Income','Net Income Common Stockholders'],1),
-            xsga =sg(inc,['Selling General Administrative','Selling General And Administration','General And Administrative Expense'],1),
-            at   =sg(bal,['Total Assets'],1),
-            act  =sg(bal,['Current Assets','Total Current Assets'],1),
-            lt   =sg(bal,['Total Liabilities Net Minority Interest','Total Liabilities'],1),
-            rect =sg(bal,['Receivables','Net Receivables','Accounts Receivable'],1),
-            ppent=sg(bal,['Net PPE','Net Property Plant And Equipment','Gross PPE'],1),
-            dpc  =sg(cf, ['Depreciation And Amortization','Depreciation Amortization Depletion','Depreciation'],1),
-            oancf=sg(cf, ['Operating Cash Flow','Cash Flow From Continuing Operating Activities'],1),
-        )
-
-        sic_map = {
-            'Technology':10,'Consumer Cyclical':50,'Healthcare':40,
-            'Financial Services':60,'Energy':13,'Industrials':30,
-            'Consumer Defensive':20,'Real Estate':65,'Utilities':49,
-            'Communication Services':48,'Basic Materials':28
-        }
-        sic_est = sic_map.get(sector, 70)
-        def map_ind(s):
-            if 1000<=s<2000: return "Mining"
-            elif 2000<=s<4000: return "Manufacturing"
-            elif 4000<=s<5000: return "Transportation"
-            elif 5000<=s<6000: return "Wholesale/Retail"
-            elif 6000<=s<7000: return "Finance"
-            elif 7000<=s<8000: return "Services"
-            else: return "Other"
-        industry = map_ind(sic_est)
-
-        pm      = r['ni']/r['revt'] if r['revt'] else 0
-        ind_avg = pm * 0.9
-
-        feats = {
-            'roa':                       r['ni']/r['at']           if r['at']   else 0,
-            'profit_margin':             pm,
-            'current_ratio':             r['act']/r['lct']         if r['lct']  else 0,
-            'debt_ratio':                r['lt']/r['at']           if r['at']   else 0,
-            'asset_turnover':            r['revt']/r['at']         if r['at']   else 0,
-            'ocf_ratio':                 r['oancf']/r['at']        if r['at']   else 0,
-            'sga_ratio':                 r['xsga']/r['revt']       if r['revt'] else 0,
-            'depr_ratio':                r['dpc']/r['at']          if r['at']   else 0,
-            'revenue_growth':            (r['revt']-l['revt'])/abs(l['revt']) if l['revt'] else 0,
-            'asset_growth':              (r['at']-l['at'])/abs(l['at'])       if l['at']   else 0,
-            'income_growth':             (r['ni']-l['ni'])/abs(l['ni'])       if l['ni']   else 0,
-            'accrual_ratio':             (r['ni']-r['oancf'])/r['at']         if r['at']   else 0,
-            'cfo_to_income':             r['oancf']/r['ni']        if r['ni']   else 0,
-            'receivable_ratio':          r['rect']/r['revt']       if r['revt'] else 0,
-            'profit_margin_vs_industry': pm - ind_avg,
-        }
-
-        m_score, _beneish_debug = compute_beneish(r, l)
-
-        years = list(inc.columns)
-        hist  = []
-        for i, yr in enumerate(years):
-            rv  = sg(inc,'Total Revenue',i)
-            ni  = sg(inc,'Net Income',i)
-            at  = sg(bal,'Total Assets',i)
-            oc  = sg(cf, 'Operating Cash Flow',i)
-            lc  = sg(bal,'Current Liabilities',i)
-            ac  = sg(bal,'Current Assets',i)
-            lt  = sg(bal,'Total Liabilities Net Minority Interest',i)
-            hist.append({
-                'Year':              pd.Timestamp(yr).year if hasattr(yr,'year') else str(yr)[:4],
-                'Total Revenue':     rv/1e6,
-                'Net Income':        ni/1e6,
-                'Total Assets':      at/1e6,
-                'Operating Cash Flow': oc/1e6,
-                'ROA':               ni/at   if at  else 0,
-                'Profit Margin':     ni/rv   if rv  else 0,
-                'Debt Ratio':        lt/at   if at  else 0,
-                'Current Ratio':     ac/lc   if lc  else 0,
-                'Asset Turnover':    rv/at   if at  else 0,
-                'Accrual Ratio':     (ni-oc)/at if at else 0,
-            })
-        hist_df = pd.DataFrame(hist).sort_values('Year')
-
-        extra = dict(sector=sector, industry=industry,
-                     country=country, employees=employees,
-                     marketCap=0, beneish_debug=_beneish_debug)
-        return feats, m_score, name, hist_df, extra
-
-    except Exception as e:
-        return None,None,None,None,None, f"Processing error: {e}"
     try:
         r = dict(
             revt =safe_get(inc,'Total Revenue'),
@@ -669,21 +542,6 @@ elif page == "📊 Company Analysis":
                   f"{prob:.1%}" if prob is not None else "N/A",
                   help="Random Forest probability")
         k4.metric("Risk Label", ms_label)
-
-        # Show pkl warning if model not loaded
-        if importances is None:
-            st.warning("⚠️ **ML model not loaded** — `fraud_model.pkl` is missing from your GitHub repo. "
-                       "Beneish M-Score is still shown. Upload the pkl file to enable ML predictions.")
-
-        # Debug expander — shows raw fetched values so we can diagnose N/A
-        if m_score is None and isinstance(extra, dict) and 'beneish_debug' in extra:
-            with st.expander("🔎 Debug: Why is M-Score N/A? (click to expand)"):
-                dbg = extra['beneish_debug']
-                zero_keys = [k for k,v in dbg.items() if v == 0 and k.startswith('r_')]
-                if zero_keys:
-                    st.error(f"These values came back as 0 from yfinance: **{', '.join(zero_keys)}**")
-                    st.write("This causes division-by-zero in the M-Score formula.")
-                st.json(dbg)
 
         # Interpretation
         st.markdown("#### 📖 Score Interpretation")
