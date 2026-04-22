@@ -345,6 +345,114 @@ def fetch_company(ticker_sym: str):
 
     except Exception as e:
         return None,None,None,None,None, f"Processing error: {e}"
+    try:
+        r = dict(
+            revt =safe_get(inc,'Total Revenue'),
+            cogs =safe_get(inc,'Cost Of Revenue'),
+            ni   =safe_get(inc,'Net Income'),
+            xsga =safe_get(inc,'Selling General Administrative'),
+            at   =safe_get(bal,'Total Assets'),
+            act  =safe_get(bal,'Current Assets'),
+            lct  =safe_get(bal,'Current Liabilities'),
+            lt   =safe_get(bal,'Total Liabilities Net Minority Interest'),
+            rect =safe_get(bal,'Receivables'),
+            ppent=safe_get(bal,'Net PPE'),
+            dpc  =safe_get(cf,'Depreciation And Amortization'),
+            oancf=safe_get(cf,'Operating Cash Flow'),
+        )
+        l = dict(
+            revt =safe_get(inc,'Total Revenue',1),
+            cogs =safe_get(inc,'Cost Of Revenue',1),
+            ni   =safe_get(inc,'Net Income',1),
+            xsga =safe_get(inc,'Selling General Administrative',1),
+            at   =safe_get(bal,'Total Assets',1),
+            act  =safe_get(bal,'Current Assets',1),
+            lt   =safe_get(bal,'Total Liabilities Net Minority Interest',1),
+            rect =safe_get(bal,'Receivables',1),
+            ppent=safe_get(bal,'Net PPE',1),
+            dpc  =safe_get(cf,'Depreciation And Amortization',1),
+            oancf=safe_get(cf,'Operating Cash Flow',1),
+        )
+
+        sic_map = {
+            'Technology':10,'Consumer Cyclical':50,'Healthcare':40,
+            'Financial Services':60,'Energy':13,'Industrials':30,
+            'Consumer Defensive':20,'Real Estate':65,'Utilities':49,
+            'Communication Services':48,'Basic Materials':28
+        }
+        sector   = info.get('sector','Other')
+        sic_est  = sic_map.get(sector, 70)
+        def map_ind(s):
+            if 1000<=s<2000: return "Mining"
+            elif 2000<=s<4000: return "Manufacturing"
+            elif 4000<=s<5000: return "Transportation"
+            elif 5000<=s<6000: return "Wholesale/Retail"
+            elif 6000<=s<7000: return "Finance"
+            elif 7000<=s<8000: return "Services"
+            else: return "Other"
+        industry = map_ind(sic_est)
+
+        pm     = r['ni']/r['revt'] if r['revt'] else 0
+        ind_avg= pm * 0.9
+
+        feats = {
+            'roa':                       r['ni']/r['at']           if r['at']   else 0,
+            'profit_margin':             pm,
+            'current_ratio':             r['act']/r['lct']         if r['lct']  else 0,
+            'debt_ratio':                r['lt']/r['at']           if r['at']   else 0,
+            'asset_turnover':            r['revt']/r['at']         if r['at']   else 0,
+            'ocf_ratio':                 r['oancf']/r['at']        if r['at']   else 0,
+            'sga_ratio':                 r['xsga']/r['revt']       if r['revt'] else 0,
+            'depr_ratio':                r['dpc']/r['at']          if r['at']   else 0,
+            'revenue_growth':            (r['revt']-l['revt'])/abs(l['revt']) if l['revt'] else 0,
+            'asset_growth':              (r['at']-l['at'])/abs(l['at'])       if l['at']   else 0,
+            'income_growth':             (r['ni']-l['ni'])/abs(l['ni'])       if l['ni']   else 0,
+            'accrual_ratio':             (r['ni']-r['oancf'])/r['at']         if r['at']   else 0,
+            'cfo_to_income':             r['oancf']/r['ni']        if r['ni']   else 0,
+            'receivable_ratio':          r['rect']/r['revt']       if r['revt'] else 0,
+            'profit_margin_vs_industry': pm - ind_avg,
+        }
+
+        m_score = compute_beneish(r, l)
+
+        # Historical trends
+        years = list(inc.columns)
+        hist  = []
+        for i, yr in enumerate(years):
+            rev_v  = safe_get(inc,'Total Revenue',i)
+            ni_v   = safe_get(inc,'Net Income',i)
+            at_v   = safe_get(bal,'Total Assets',i)
+            oancf_v= safe_get(cf,'Operating Cash Flow',i)
+            lct_v  = safe_get(bal,'Current Liabilities',i)
+            act_v  = safe_get(bal,'Current Assets',i)
+            lt_v   = safe_get(bal,'Total Liabilities Net Minority Interest',i)
+            hist.append({
+                'Year':              pd.Timestamp(yr).year if hasattr(yr,'year') else str(yr)[:4],
+                'Total Revenue':     rev_v/1e6,
+                'Net Income':        ni_v/1e6,
+                'Total Assets':      at_v/1e6,
+                'Operating Cash Flow': oancf_v/1e6,
+                'ROA':               ni_v/at_v    if at_v   else 0,
+                'Profit Margin':     ni_v/rev_v   if rev_v  else 0,
+                'Debt Ratio':        lt_v/at_v    if at_v   else 0,
+                'Current Ratio':     act_v/lct_v  if lct_v  else 0,
+                'Asset Turnover':    rev_v/at_v   if at_v   else 0,
+                'Accrual Ratio':     (ni_v-oancf_v)/at_v if at_v else 0,
+            })
+        hist_df = pd.DataFrame(hist).sort_values('Year')
+
+        extra = {
+            'sector':      sector,
+            'industry':    industry,
+            'marketCap':   info.get('marketCap',0),
+            'country':     info.get('country','N/A'),
+            'employees':   info.get('fullTimeEmployees',0),
+            'description': info.get('longBusinessSummary','')[:300],
+        }
+        return feats, m_score, name, hist_df, extra
+
+    except Exception as e:
+        return None, None, None, None, None, str(e)
 
 def risk_label_ms(m):
     if m is None: return "Unknown","badge-mod"
@@ -827,7 +935,6 @@ elif page == "⚖️ Compare Companies":
 
                 # Fraud score bar
                 st.markdown("#### 🎯 Fraud Risk Score")
-                st.caption("Composite score (0–100) combining Beneish M-Score and ML fraud probability. The red dashed line marks the high-risk threshold at 60. Companies above this line warrant further due diligence.")
                 fig_s = go.Figure(go.Bar(
                     x=names, y=scores,
                     marker_color=PALETTE[:len(rows)],
@@ -841,20 +948,10 @@ elif page == "⚖️ Compare Companies":
 
                 # Key ratio tabs
                 st.markdown("#### 📊 Key Ratio Comparisons")
-                st.caption("Select a tab to compare each financial ratio across companies. Higher ROA and Profit Margin indicate better profitability. Lower Debt Ratio is safer. Accrual Ratio and Receivable Ratio closer to 0 are healthier — high values may indicate earnings manipulation.")
                 ratio_keys = ['roa','profit_margin','debt_ratio','current_ratio','accrual_ratio','receivable_ratio']
-                ratio_interp = {
-                    'roa':              "**Return on Assets (ROA):** Measures how efficiently a company generates profit from its assets. Higher is better. Significant differences across peers suggest varying operational efficiency.",
-                    'profit_margin':    "**Profit Margin:** The percentage of revenue that becomes profit. A company with a much higher margin than peers may be reporting inflated earnings — worth investigating.",
-                    'debt_ratio':       "**Debt Ratio:** Total liabilities divided by total assets. Values above 0.7 indicate high leverage and elevated financial risk.",
-                    'current_ratio':    "**Current Ratio:** Current assets divided by current liabilities. Values below 1.0 suggest the company may struggle to meet short-term obligations.",
-                    'accrual_ratio':    "**Accrual Ratio:** (Net Income − Operating CFO) / Assets. A high positive value means earnings are driven by accruals rather than actual cash — a key fraud signal.",
-                    'receivable_ratio': "**Receivable Ratio:** Accounts receivable relative to revenue. A rising ratio may indicate the company is booking sales that haven't been collected yet.",
-                }
                 r_tabs = st.tabs([FEATURE_LABELS[k].split('(')[0].strip() for k in ratio_keys])
                 for tab, rk in zip(r_tabs, ratio_keys):
                     with tab:
-                        st.markdown(ratio_interp.get(rk,''))
                         vals = [r['feats'][rk] for r in rows]
                         fig_r = go.Figure(go.Bar(
                             x=names, y=vals, marker_color=PALETTE[:len(rows)],
@@ -866,7 +963,6 @@ elif page == "⚖️ Compare Companies":
 
                 # Red flags bar
                 st.markdown("#### 🚩 Red Flag Count")
-                st.caption("Number of fraud warning signals triggered per company (max 6). 🟢 Green = 0 flags (clean), 🟡 Orange = 1–2 flags (monitor), 🔴 Red = 3+ flags (high concern). Flags are based on accrual ratio, CFO/income gap, receivables, debt level, revenue growth, and margin vs. industry.")
                 fig_f = go.Figure(go.Bar(
                     x=names, y=flags,
                     marker_color=['#ef4444' if f>=3 else '#f59e0b' if f>=1 else '#10b981' for f in flags],
@@ -879,7 +975,6 @@ elif page == "⚖️ Compare Companies":
 
                 # Radar
                 st.markdown("#### 🕸️ Risk Profile Radar")
-                st.caption("Each axis represents a normalized financial metric (0–1 scale). A larger, rounder shape generally indicates stronger overall financial health. Differences in shape between companies highlight where each firm stands out or falls behind its peers.")
                 radar_keys   = ['roa','profit_margin','current_ratio','asset_turnover','ocf_ratio','accrual_ratio']
                 radar_labels = [FEATURE_LABELS[k].split('(')[0].strip() for k in radar_keys] + [FEATURE_LABELS[radar_keys[0]].split('(')[0].strip()]
                 fig_rad = go.Figure()
