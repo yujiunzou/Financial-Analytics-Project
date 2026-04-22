@@ -182,15 +182,9 @@ def compute_beneish(r, l):
 
 @st.cache_data(ttl=3600)
 def fetch_company(ticker_sym: str):
-    import time, requests
-    # Rotate User-Agents to avoid Yahoo Finance rate limiting on shared IPs
-    _UA = (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/123.0.0.0 Safari/537.36"
-    )
-    session = requests.Session()
-    session.headers.update({"User-Agent": _UA})
+    import time
+    from curl_cffi import requests as cffi_requests
+    session = cffi_requests.Session(impersonate="chrome")
 
     for attempt in range(4):
         try:
