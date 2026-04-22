@@ -544,9 +544,8 @@ if page == "🏠 Home":
     🔍 FraudSight
   </div>
   <div style='font-size:1.2rem;color:#6b7280;margin-bottom:0.3rem'>
-    AI-powered financial fraud detection for public companies
-  </div>
-  <div style='font-size:0.88rem;color:#9ca3af'>BA870AC820 · BU Questrom School of Business</div>
+    financial fraud detection for public companies
+  
 </div>
 """, unsafe_allow_html=True)
 
