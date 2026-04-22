@@ -182,10 +182,19 @@ def compute_beneish(r, l):
 
 @st.cache_data(ttl=3600)
 def fetch_company(ticker_sym: str):
-    import time
-    for attempt in range(3):
+    import time, requests
+    # Rotate User-Agents to avoid Yahoo Finance rate limiting on shared IPs
+    _UA = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/123.0.0.0 Safari/537.36"
+    )
+    session = requests.Session()
+    session.headers.update({"User-Agent": _UA})
+
+    for attempt in range(4):
         try:
-            t    = yf.Ticker(ticker_sym)
+            t    = yf.Ticker(ticker_sym, session=session)
             info = t.info or {}
             name = info.get('longName', ticker_sym.upper())
 
@@ -194,27 +203,26 @@ def fetch_company(ticker_sym: str):
             cf  = t.cashflow
 
             if inc is None or inc.empty:
-                # Possibly rate-limited — retry after short wait
-                if attempt < 2:
-                    time.sleep(3 + attempt * 2)
+                if attempt < 3:
+                    time.sleep(5 + attempt * 5)
                     continue
                 return None, None, None, None, None, (
-                    "Yahoo Finance returned no data. This is usually a temporary rate limit. "
-                    "Please wait 30–60 seconds and try again."
+                    "Yahoo Finance returned no data after multiple attempts. "
+                    "Please try a different ticker or wait a few minutes."
                 )
             if inc.shape[1] < 2:
                 return None, None, None, None, None, "Need at least 2 years of data to compute growth ratios."
-            break  # success — exit retry loop
+            break  # success
         except Exception as e:
             err_msg = str(e)
-            if "rate limit" in err_msg.lower() or "too many" in err_msg.lower() or attempt < 2:
-                time.sleep(3 + attempt * 3)
+            if attempt < 3:
+                time.sleep(5 + attempt * 5)
                 continue
-            return None, None, None, None, None, f"Error fetching data: {err_msg}"
+            return None, None, None, None, None, f"Data fetch error: {err_msg}"
     else:
         return None, None, None, None, None, (
-            "Yahoo Finance is rate-limiting requests right now. "
-            "Please wait 1–2 minutes and click Run Analysis again."
+            "Unable to retrieve data from Yahoo Finance. "
+            "This may be a temporary issue — please try again in a few minutes."
         )
     try:
         r = dict(
