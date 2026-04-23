@@ -3,12 +3,17 @@
 **BA870 Financial Analytics – Team Project**  
 members: Inchara Ashok, Yujiun Zou, Kara Liao
 - FraudSight webapp : https://fraudsight.streamlit.app/
-- Colab notebook:https://colab.research.google.com/drive/1_CwL3hADERWe9pJZ1_GnWR68GMpVwLWi?usp=sharing
+- Colab notebook:　https://colab.research.google.com/drive/1_CwL3hADERWe9pJZ1_GnWR68GMpVwLWi?usp=sharing
 ## Overview
 A Streamlit web app that detects potential financial statement fraud using:
 - **Beneish M-Score** (rule-based, 8-variable linear model)
 - **Random Forest classifier** (trained on WRDS Compustat data)
 
+
+## Project Description and Motivation
+This project develops an interactive financial fraud detection application, FraudSight, designed to help users identify companies with potential earnings manipulation. Financial fraud detection is challenging because financial statements contain complex information, and warning signs are often not obvious. As a result, investors and analysts must rely on time-consuming manual analysis, which may overlook important signals.
+
+To address this problem, we combine financial ratio analysis, the Beneish M-Score, and machine learning techniques to automatically detect abnormal reporting patterns. After comparing models, we selected Random Forest as the final model due to its superior performance in identifying fraud. The model is integrated into the app to generate fraud risk scores and provide clear, data-driven insights, enabling users to make faster and more informed decisions.
 ## Features
 - 📈 Live public company analysis via Yahoo Finance (just enter a ticker)
 - ✏️ Manual ratio input for private companies
