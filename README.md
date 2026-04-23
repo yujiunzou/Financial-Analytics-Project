@@ -1,7 +1,8 @@
 # 🔍 Financial Fraud Detector
 
-**BA870AC820 Financial & Accounting Analytics – Team Project**  
-Boston University Questrom School of Business
+**BA870 Financial Analytics – Team Project**  
+members: Inchara Ashok, Yujiun Zou, Kara Liao
+FraudSight webapp : https://fraudsight.streamlit.app/
 
 ## Overview
 A Streamlit web app that detects potential financial statement fraud using:
