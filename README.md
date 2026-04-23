@@ -2,8 +2,8 @@
 
 **BA870 Financial Analytics – Team Project**  
 members: Inchara Ashok, Yujiun Zou, Kara Liao
-FraudSight webapp : https://fraudsight.streamlit.app/
-
+- FraudSight webapp : https://fraudsight.streamlit.app/
+- Colab notebook:https://colab.research.google.com/drive/1_CwL3hADERWe9pJZ1_GnWR68GMpVwLWi?usp=sharing
 ## Overview
 A Streamlit web app that detects potential financial statement fraud using:
 - **Beneish M-Score** (rule-based, 8-variable linear model)
